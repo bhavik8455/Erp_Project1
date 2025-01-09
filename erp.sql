@@ -2507,7 +2507,7 @@ DELIMITER ;
 
 DELIMITER //
 
-CREATE  FUNCTION Authentication(
+CREATE FUNCTION Authentication(
     p_MailID VARCHAR(255),
     p_Password VARCHAR(255)
 )
@@ -2521,7 +2521,7 @@ BEGIN
     -- Hash the input password using SHA-256
     SET v_HashedPassword = SHA2(p_Password, 256);
 
-    -- Retrieve the stored hashed password for the given email and role 'Regular'
+    -- Retrieve the stored hashed password for the given email and active role
     BEGIN
         -- Use a handler to gracefully manage cases where no rows are found
         DECLARE EXIT HANDLER FOR NOT FOUND 
@@ -2530,10 +2530,10 @@ BEGIN
             SET v_Flag = 0;
         END;
 
-        -- Attempt to fetch the stored password
+        -- Attempt to fetch the stored password for active users
         SELECT Password INTO v_StoredPassword
-        FROM USERS
-        WHERE MailID = p_MailID AND Role = 'regular';
+        FROM Users
+        WHERE MailID = p_MailID AND Role NOT LIKE 'Inactive_%';
     END;
 
     -- If the hashed password matches the stored password, authentication is successful
@@ -2549,54 +2549,6 @@ END;
 //
 
 DELIMITER ;
-
--- Admin Authentication
-
-DELIMITER //
-CREATE  FUNCTION AdminAuthentication(
-    p_MailID VARCHAR(255),
-    p_Password VARCHAR(255)
-)
-RETURNS INT
-DETERMINISTIC
-BEGIN
-    DECLARE v_HashedPassword VARCHAR(255);
-    DECLARE v_StoredPassword VARCHAR(255);
-    DECLARE v_Flag INT DEFAULT 0; -- 0 for failure, 1 for success
-
-    -- Hash the input password using SHA-256
-    SET v_HashedPassword = SHA2(p_Password, 256);
-
-    -- Retrieve the stored hashed password for the given email and role 'Regular'
-    BEGIN
-        -- Use a handler to gracefully manage cases where no rows are found
-        DECLARE EXIT HANDLER FOR NOT FOUND 
-        BEGIN
-            -- Set v_Flag to 0 (authentication failure) if no record is found
-            SET v_Flag = 0;
-        END;
-
-        -- Attempt to fetch the stored password
-        SELECT Password INTO v_StoredPassword
-        FROM USERS
-        WHERE MailID = p_MailID AND Role = 'Admin';
-    END;
-
-    -- If the hashed password matches the stored password, authentication is successful
-    IF v_HashedPassword = v_StoredPassword THEN
-        SET v_Flag = 1; -- Authentication successful
-    ELSE
-        SET v_Flag = 0; -- Authentication failed
-    END IF;
-
-    -- Return the authentication flag (1 = success, 0 = failure)
-    RETURN v_Flag;
-END;
-//
-
-DELIMITER ;
-
-
 
 -- Function to Purchase a product
 
@@ -2697,6 +2649,27 @@ BEGIN
 END;
 //
 
+DELIMITER ;
+
+-- Activate or Deactivate the users
+
+use demo_erp;
+DELIMITER //
+CREATE PROCEDURE ActivateUser(IN userEmail VARCHAR(100))
+BEGIN
+    UPDATE Users
+    SET Role = SUBSTRING(Role, 10)
+    WHERE MailID = userEmail AND Role LIKE 'Inactive_%';
+END //
+DELIMITER ;
+
+DELIMITER //
+CREATE PROCEDURE DeactivateUser(IN userEmail VARCHAR(100))
+BEGIN
+    UPDATE Users
+    SET Role = CONCAT('Inactive_', Role)
+    WHERE MailID = userEmail AND Role NOT LIKE 'Inactive_%';
+END //
 DELIMITER ;
 
 
