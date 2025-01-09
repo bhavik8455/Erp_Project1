@@ -1,10 +1,7 @@
 use demo_erp;
 
 -- CREATING ALL THE TABLES
-DELIMITER $$
 
-CREATE PROCEDURE CreateTables()
-BEGIN
     -- Users Table
     CREATE TABLE IF NOT EXISTS Users (
         UserID INT AUTO_INCREMENT PRIMARY KEY,
@@ -71,9 +68,7 @@ BEGIN
         Timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         Results JSON DEFAULT NULL
     );
-END$$
 
-DELIMITER ;
 -- Insertion of the dummy data
 
 
@@ -2440,7 +2435,7 @@ VALUES
 -- REGISTRATION 
 DELIMITER //
 
-CREATE  PROCEDURE Registration(
+CREATE PROCEDURE Registration(
     IN p_MailID VARCHAR(255),
     IN p_Name VARCHAR(255),
     IN p_Password VARCHAR(255),
@@ -2479,10 +2474,15 @@ BEGIN
     -- Insert user details into the USERS table
     INSERT INTO USERS (MailID, Name, Password, Role)
     VALUES (p_MailID, p_Name, v_HashedPassword, p_Role);
+
+    -- Print a success message
+    SELECT 'Successfully Registered!!' AS Message;
+
 END;
 //
 
 DELIMITER ;
+
 
 -- Triger to store the regular user data to Customer table 
 DELIMITER //
@@ -2511,12 +2511,12 @@ CREATE FUNCTION Authentication(
     p_MailID VARCHAR(255),
     p_Password VARCHAR(255)
 )
-RETURNS INT
+RETURNS VARCHAR(50)
 DETERMINISTIC
 BEGIN
     DECLARE v_HashedPassword VARCHAR(255);
     DECLARE v_StoredPassword VARCHAR(255);
-    DECLARE v_Flag INT DEFAULT 0; -- 0 for failure, 1 for success
+    DECLARE v_Result VARCHAR(50) DEFAULT 'Authentication Unsuccessful!';
 
     -- Hash the input password using SHA-256
     SET v_HashedPassword = SHA2(p_Password, 256);
@@ -2526,8 +2526,8 @@ BEGIN
         -- Use a handler to gracefully manage cases where no rows are found
         DECLARE EXIT HANDLER FOR NOT FOUND 
         BEGIN
-            -- Set v_Flag to 0 (authentication failure) if no record is found
-            SET v_Flag = 0;
+            -- No matching record found; leave v_Result as 'Authentication Unsuccessful!'
+            SET v_Result = 'Authentication Unsuccessful!';
         END;
 
         -- Attempt to fetch the stored password for active users
@@ -2536,70 +2536,93 @@ BEGIN
         WHERE MailID = p_MailID AND Role NOT LIKE 'Inactive_%';
     END;
 
-    -- If the hashed password matches the stored password, authentication is successful
+    -- If the hashed password matches the stored password, update the result
     IF v_HashedPassword = v_StoredPassword THEN
-        SET v_Flag = 1; -- Authentication successful
-    ELSE
-        SET v_Flag = 0; -- Authentication failed
+        SET v_Result = 'Authentication Successful!';
     END IF;
 
-    -- Return the authentication flag (1 = success, 0 = failure)
-    RETURN v_Flag;
+    -- Return the authentication result message
+    RETURN v_Result;
 END;
 //
 
 DELIMITER ;
 
--- Function to Purchase a product
+
+-- Function to fetch the total price 
 
 DELIMITER //
 
-CREATE FUNCTION PurchaseProduct(
+CREATE FUNCTION FetchTotalCost(
     p_ProductID INT,
-    p_CustomerID INT,
-    p_Quantity INT,
-    p_PaymentMethod VARCHAR(50)
+    p_Quantity INT
 )
 RETURNS DECIMAL(10, 2)
 DETERMINISTIC
 BEGIN
-    DECLARE v_Stock INT;
     DECLARE v_SellingPrice DECIMAL(10, 2);
     DECLARE v_TotalCost DECIMAL(10, 2);
-    
-    -- Retrieve current stock and selling price for the product
-    SELECT Stock, SellingPrice INTO v_Stock, v_SellingPrice
+
+    -- Retrieve the selling price of the product
+    SELECT SellingPrice INTO v_SellingPrice
     FROM Products
     WHERE ProductID = p_ProductID;
-    
-    -- Check if sufficient stock is available
-    IF v_Stock < p_Quantity THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Insufficient stock for the requested quantity.';
-    END IF;
-    
-    -- Calculate the total cost of the purchase
-    SET v_TotalCost = p_Quantity * v_SellingPrice;
-    
-    -- Update the product stock
-    UPDATE Products
-    SET Stock = Stock - p_Quantity
-    WHERE ProductID = p_ProductID;
-    
-    -- Record the sale in the Sales table
-    INSERT INTO Sales (ProductID, CustomerID, Date, Quantity, TotalAmount, PaymentMethod)
-    VALUES (p_ProductID, p_CustomerID, NOW(), p_Quantity, v_TotalCost, p_PaymentMethod);
-    
-    -- Set session variables for future use
-    SET @LastProductID = p_ProductID;
-    SET @LastCustomerID = p_CustomerID;
-    
-    -- Return the total cost of the purchase
+
+    -- Calculate the total cost
+    SET v_TotalCost = v_SellingPrice * p_Quantity;
+
+    -- Return the calculated total cost
     RETURN v_TotalCost;
 END;
 //
 
-DELIMITER ;  
+DELIMITER ;
+
+
+-- Procedure to Purchase a product
+
+DELIMITER //
+
+CREATE PROCEDURE PurchaseProduct(
+    IN p_ProductID INT,
+    IN p_CustomerID INT,
+    IN p_Quantity INT,
+    IN p_PaymentMethod VARCHAR(50)
+)
+BEGIN
+    DECLARE v_Stock INT;
+    DECLARE v_SellingPrice DECIMAL(10, 2);
+    DECLARE v_TotalCost DECIMAL(10, 2);
+
+    -- Retrieve current stock and selling price for the product
+    SELECT Stock, SellingPrice INTO v_Stock, v_SellingPrice
+    FROM Products
+    WHERE ProductID = p_ProductID;
+
+    -- Calculate the total cost of the purchase
+    SET v_TotalCost = p_Quantity * v_SellingPrice;
+
+    -- Update the product stock
+    UPDATE Products
+    SET Stock = Stock - p_Quantity
+    WHERE ProductID = p_ProductID;
+
+    -- Record the sale in the Sales table
+    INSERT INTO Sales (ProductID, CustomerID, Date, Quantity, TotalAmount, PaymentMethod)
+    VALUES (p_ProductID, p_CustomerID, NOW(), p_Quantity, v_TotalCost, p_PaymentMethod);
+
+	 SELECT 'Successfully Purchased a product!!' AS Message;
+     
+    -- Set session variables
+    SET @LastProductID = p_ProductID;
+    SET @LastCustomerID = p_CustomerID;
+
+END;
+//
+
+DELIMITER ;
+
+  
 
 
 -- Procedure to submit the feedback
@@ -2653,30 +2676,44 @@ DELIMITER ;
 
 -- Activate or Deactivate the users
 
-use demo_erp;
+
 DELIMITER //
+
 CREATE PROCEDURE ActivateUser(IN userEmail VARCHAR(100))
 BEGIN
+    -- Update the user role to remove the 'Inactive_' prefix
     UPDATE Users
     SET Role = SUBSTRING(Role, 10)
     WHERE MailID = userEmail AND Role LIKE 'Inactive_%';
+
+    -- Print the success message after activation
+    SELECT 'Activated Successfully' AS Message;
 END //
+
 DELIMITER ;
 
+
 DELIMITER //
+
 CREATE PROCEDURE DeactivateUser(IN userEmail VARCHAR(100))
 BEGIN
+    -- Update the user role to add the 'Inactive_' prefix
     UPDATE Users
     SET Role = CONCAT('Inactive_', Role)
     WHERE MailID = userEmail AND Role NOT LIKE 'Inactive_%';
+
+    -- Print the success message after deactivation
+    SELECT 'Deactivated Successfully' AS Message;
 END //
+
 DELIMITER ;
+
 
 
 -- Edit User Details
 DELIMITER //
 
-CREATE  PROCEDURE EditUserDetails(
+CREATE PROCEDURE EditUserDetails(
     IN p_UserID INT,
     IN p_Name VARCHAR(255),
     IN p_MailID VARCHAR(255),
@@ -2695,15 +2732,14 @@ BEGIN
     IF ROW_COUNT() = 0 THEN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'User not found.';
+    ELSE
+        -- Print a success message if the user details are edited
+        SELECT 'Edited Successfully' AS Message;
     END IF;
 END;
 //
 
 DELIMITER ;
-
-
--- Activate or Deactivate Users
-
 
 
 
@@ -2727,6 +2763,9 @@ BEGIN
     -- Insert the product details into the Products table
     INSERT INTO Products (Name, Category, Cost, SellingPrice, Stock, ReorderLevel, SupplierInfo, ExpiryDate)
     VALUES (p_Name, p_Category, p_Cost, p_SellingPrice, p_Stock, p_ReorderLevel, p_SupplierInfo, p_ExpiryDate);
+	
+    SELECT 'Successfully Added the Product' AS Message;
+    
 END;
 //
 
@@ -2764,6 +2803,8 @@ BEGIN
     IF ROW_COUNT() = 0 THEN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Product not found.';
+	ELSE
+		SELECT 'Edited Successfully' AS Message;
     END IF;
 END;
 //
@@ -2787,6 +2828,8 @@ BEGIN
     IF ROW_COUNT() = 0 THEN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Product not found.';
+	ELSE
+		SELECT 'Deleted Successfully' AS Message;
     END IF;
 END;
 //
@@ -2860,7 +2903,7 @@ BEGIN
     DECLARE v_result JSON DEFAULT JSON_ARRAY();
 
     -- Declare cursor for fetching monthly sales data
-    DECLARE sales_cursor CURSOR FOR 
+     DECLARE sales_cursor CURSOR FOR 
         SELECT DATE_FORMAT(Date, '%Y-%m') AS month, SUM(TotalAmount) AS total_sales
         FROM Sales
         GROUP BY DATE_FORMAT(Date, '%Y-%m')
