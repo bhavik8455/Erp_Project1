@@ -2657,6 +2657,40 @@ DELIMITER ;
 
 
 
+-- User can view their feedbacks
+
+
+DELIMITER //
+
+CREATE FUNCTION UserFeedbacks(
+    p_customerID INT
+)
+RETURNS JSON
+DETERMINISTIC
+BEGIN
+    DECLARE result JSON;
+
+    SELECT CONCAT('[', GROUP_CONCAT(
+        CONCAT(
+            '{"ProductID":', ProductID,
+            ',"Comments":"', Comments,
+            '","Ratings":', Ratings,
+            ',"Timestamp":"', Timestamp, '"}'
+        )
+    ), ']')
+    INTO result
+    FROM Feedback
+    WHERE CustomerID = p_customerID;
+
+    RETURN result;
+END;
+//
+
+DELIMITER ;
+
+
+
+
 
 -- USER MANAGEMENTS
 -- View Regular Users
@@ -2838,35 +2872,39 @@ DELIMITER ;
 
 -- Feedback Management
 
+
 -- View the Feedback
 
 DELIMITER //
 
-CREATE  FUNCTION ViewFeedbacks(
+CREATE FUNCTION ViewFeedbacks(
     p_ProductID INT
 )
 RETURNS JSON
 DETERMINISTIC
 BEGIN
-    -- Return feedbacks as a JSON object
-    RETURN (
-        SELECT JSON_ARRAYAGG(   
-            JSON_OBJECT(
-                'FeedbackID', FeedbackID,
-                'ProductID', ProductID,
-                'CustomerID', CustomerID,
-                'Comments', Comments,
-                'Ratings', Ratings,
-                'Timestamp', Timestamp
-            )
+    DECLARE result JSON;
+
+    SELECT CONCAT('[', GROUP_CONCAT(
+        CONCAT(
+            '{"FeedbackID":', FeedbackID,
+            ',"ProductID":', ProductID,
+            ',"CustomerID":', CustomerID,
+            ',"Comments":"', Comments,
+            '","Ratings":', Ratings,
+            ',"Timestamp":"', Timestamp, '"}'
         )
-        FROM Feedback
-        WHERE ProductID = IFNULL(p_ProductID, ProductID)
-    );
+    ), ']')
+    INTO result
+    FROM Feedback
+    WHERE ProductID = IFNULL(p_ProductID, ProductID);
+
+    RETURN result;
 END;
 //
 
 DELIMITER ;
+
 
 -- Responding to the feedback
 DELIMITER //
