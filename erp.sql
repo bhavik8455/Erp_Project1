@@ -2533,7 +2533,7 @@ BEGIN
         -- Attempt to fetch the stored password for active users
         SELECT Password INTO v_StoredPassword
         FROM Users
-        WHERE MailID = p_MailID AND Role NOT LIKE 'Inactive_%';
+        WHERE MailID = p_MailID AND Role NOT LIKE 'Inactive_%' AND Role = 'Regular';
     END;
 
     -- If the hashed password matches the stored password, update the result
@@ -2547,6 +2547,54 @@ END;
 //
 
 DELIMITER ;
+
+
+-- Admin Authentication
+
+DELIMITER //
+
+CREATE FUNCTION AdminAuthentication(
+    p_MailID VARCHAR(255),
+    p_Password VARCHAR(255)
+)
+RETURNS VARCHAR(50)
+DETERMINISTIC
+BEGIN
+    DECLARE v_HashedPassword VARCHAR(255);
+    DECLARE v_StoredPassword VARCHAR(255);
+    DECLARE v_Result VARCHAR(50) DEFAULT 'Authentication Unsuccessful!';
+
+    -- Hash the input password using SHA-256
+    SET v_HashedPassword = SHA2(p_Password, 256);
+
+    -- Retrieve the stored hashed password for the given email and active role
+    BEGIN
+
+        -- Use a handler to gracefully manage cases where no rows are found
+        DECLARE EXIT HANDLER FOR NOT FOUND 
+        BEGIN
+            -- No matching record found; leave v_Result as 'Authentication Unsuccessful!'
+            SET v_Result = 'Authentication Unsuccessful!';
+        END;
+
+        -- Attempt to fetch the stored password for active users
+        SELECT Password INTO v_StoredPassword
+        FROM Users
+        WHERE MailID = p_MailID AND Role NOT LIKE 'Inactive_%' AND Role = 'Admin';
+    END;
+
+    -- If the hashed password matches the stored password, update the result
+    IF v_HashedPassword = v_StoredPassword THEN
+        SET v_Result = 'Authentication Successful!';
+    END IF;
+
+    -- Return the authentication result message
+    RETURN v_Result;
+END;
+//
+
+DELIMITER ;
+
 
 
 -- Function to fetch the total price 
