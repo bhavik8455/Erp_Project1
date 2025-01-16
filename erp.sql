@@ -2548,9 +2548,7 @@ END;
 
 DELIMITER ;
 
-
 -- Admin Authentication
-
 DELIMITER //
 
 CREATE FUNCTION AdminAuthentication(
@@ -2594,8 +2592,6 @@ END;
 //
 
 DELIMITER ;
-
-
 
 -- Function to fetch the total price 
 
@@ -2750,7 +2746,7 @@ BEGIN
     -- Select all details of users with the role 'Regular'
     SELECT UserID, MailID, Name, Role
     FROM Users
-    WHERE Role = 'Regular';
+    WHERE Role = 'Regular' or Role LIKE 'Inactive_%';
 END;
 //
 
@@ -2905,6 +2901,7 @@ BEGIN
     -- Delete the product with the specified ProductID
     DELETE FROM Products
     WHERE ProductID = p_ProductID;
+    DELETE FROM sales WHERE ProductID = p_ProductID;
 
     -- Check if any rows were deleted
     IF ROW_COUNT() = 0 THEN
