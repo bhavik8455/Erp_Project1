@@ -1,4 +1,6 @@
 use demo_erp;
+ALTER TABLE Products
+MODIFY COLUMN SupplierInfo VARCHAR(255);
 
 -- CREATING ALL THE TABLES
 
@@ -21,7 +23,7 @@ use demo_erp;
         Stock INT NOT NULL,
         SalesData JSON DEFAULT NULL,
         ReorderLevel INT NOT NULL,
-        SupplierInfo JSON DEFAULT NULL,
+        SupplierInfo VARCHAR(100) DEFAULT NULL,
         ExpiryDate DATE DEFAULT NULL
     );
 
@@ -68,6 +70,29 @@ use demo_erp;
         Timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         Results JSON DEFAULT NULL
     );
+
+
+
+use demo_erp;
+SELECT 
+    s.SaleID,
+    s.ProductID,
+    s.CustomerID,
+    s.Quantity,
+    s.Date,
+    s.TotalAmount,
+    p.Name AS ProductName,
+    p.Category AS ProductCategory,
+    c.Name AS CustomerName,
+    c.Email AS CustomerEmail
+FROM 
+    Sales s
+JOIN 
+    Products p ON s.ProductID = p.ProductID
+JOIN 
+    Customers c ON s.CustomerID = c.CustomerID
+WHERE 
+    s.CustomerID = 1;
 
 -- Insertion of the dummy data
 
@@ -2624,9 +2649,7 @@ DELIMITER ;
 
 
 -- Procedure to Purchase a product
-
 DELIMITER //
-
 CREATE PROCEDURE PurchaseProduct(
     IN p_ProductID INT,
     IN p_CustomerID INT,
@@ -2637,33 +2660,128 @@ BEGIN
     DECLARE v_Stock INT;
     DECLARE v_SellingPrice DECIMAL(10, 2);
     DECLARE v_TotalCost DECIMAL(10, 2);
-
-    -- Retrieve current stock and selling price for the product
-    SELECT Stock, SellingPrice INTO v_Stock, v_SellingPrice
+    DECLARE v_CurrentSalesData JSON;
+    DECLARE v_CurrentPurchaseHistory JSON;
+    DECLARE v_ProductName VARCHAR(100);
+    
+    -- Retrieve current stock, selling price, and product name
+    SELECT Stock, SellingPrice, Name, SalesData 
+    INTO v_Stock, v_SellingPrice, v_ProductName, v_CurrentSalesData
     FROM Products
     WHERE ProductID = p_ProductID;
-
+    
+    -- Retrieve current purchase history
+    SELECT PurchaseHistory INTO v_CurrentPurchaseHistory
+    FROM Customers
+    WHERE CustomerID = p_CustomerID;
+    
     -- Calculate the total cost of the purchase
     SET v_TotalCost = p_Quantity * v_SellingPrice;
-
+    
     -- Update the product stock
     UPDATE Products
     SET Stock = Stock - p_Quantity
     WHERE ProductID = p_ProductID;
-
+    
     -- Record the sale in the Sales table
     INSERT INTO Sales (ProductID, CustomerID, Date, Quantity, TotalAmount, PaymentMethod)
     VALUES (p_ProductID, p_CustomerID, NOW(), p_Quantity, v_TotalCost, p_PaymentMethod);
-
-	 SELECT 'Successfully Purchased a product!!' AS Message;
+    
+    -- Update Products SalesData JSON column
+    -- If SalesData is NULL, initialize it as a new JSON object
+    IF v_CurrentSalesData IS NULL THEN
+        UPDATE Products
+        SET SalesData = JSON_OBJECT(
+            'totalSales', p_Quantity,
+            'lastSaleDate', CURRENT_DATE(),
+            'lastSaleQuantity', p_Quantity,
+            'lastSaleAmount', v_TotalCost,
+            'salesHistory', JSON_ARRAY(
+                JSON_OBJECT(
+                    'date', CURRENT_DATE(),
+                    'quantity', p_Quantity,
+                    'amount', v_TotalCost
+                )
+            )
+        )
+        WHERE ProductID = p_ProductID;
+    ELSE
+        -- Update existing SalesData
+        UPDATE Products
+        SET SalesData = JSON_MERGE_PATCH(
+            SalesData,
+            JSON_OBJECT(
+                'totalSales', p_Quantity + JSON_EXTRACT(SalesData, '$.totalSales'),
+                'lastSaleDate', CURRENT_DATE(),
+                'lastSaleQuantity', p_Quantity,
+                'lastSaleAmount', v_TotalCost,
+                'salesHistory', JSON_ARRAY_APPEND(
+                    COALESCE(JSON_EXTRACT(SalesData, '$.salesHistory'), JSON_ARRAY()),
+                    '$',
+                    JSON_OBJECT(
+                        'date', CURRENT_DATE(),
+                        'quantity', p_Quantity,
+                        'amount', v_TotalCost
+                    )
+                )
+            )
+        )
+        WHERE ProductID = p_ProductID;
+    END IF;
+    
+    -- Update Customers PurchaseHistory JSON column
+    -- If PurchaseHistory is NULL, initialize it as a new JSON object
+    IF v_CurrentPurchaseHistory IS NULL THEN
+        UPDATE Customers
+        SET PurchaseHistory = JSON_OBJECT(
+            'totalPurchases', 1,
+            'totalSpent', v_TotalCost,
+            'lastPurchaseDate', CURRENT_DATE(),
+            'purchases', JSON_ARRAY(
+                JSON_OBJECT(
+                    'date', CURRENT_DATE(),
+                    'productId', p_ProductID,
+                    'productName', v_ProductName,
+                    'quantity', p_Quantity,
+                    'amount', v_TotalCost,
+                    'paymentMethod', p_PaymentMethod
+                )
+            )
+        )
+        WHERE CustomerID = p_CustomerID;
+    ELSE
+        -- Update existing PurchaseHistory
+        UPDATE Customers
+        SET PurchaseHistory = JSON_MERGE_PATCH(
+            PurchaseHistory,
+            JSON_OBJECT(
+                'totalPurchases', 1 + COALESCE(JSON_EXTRACT(PurchaseHistory, '$.totalPurchases'), 0),
+                'totalSpent', v_TotalCost + COALESCE(JSON_EXTRACT(PurchaseHistory, '$.totalSpent'), 0),
+                'lastPurchaseDate', CURRENT_DATE(),
+                'purchases', JSON_ARRAY_APPEND(
+                    COALESCE(JSON_EXTRACT(PurchaseHistory, '$.purchases'), JSON_ARRAY()),
+                    '$',
+                    JSON_OBJECT(
+                        'date', CURRENT_DATE(),
+                        'productId', p_ProductID,
+                        'productName', v_ProductName,
+                        'quantity', p_Quantity,
+                        'amount', v_TotalCost,
+                        'paymentMethod', p_PaymentMethod
+                    )
+                )
+            )
+        )
+        WHERE CustomerID = p_CustomerID;
+    END IF;
+    
+    SELECT 'Successfully Purchased a product!!' AS Message;
      
     -- Set session variables
     SET @LastProductID = p_ProductID;
     SET @LastCustomerID = p_CustomerID;
-
 END;
 //
-
 DELIMITER ;
 
   
@@ -2791,29 +2909,50 @@ DELIMITER ;
 -- Edit User Details
 DELIMITER //
 
-CREATE PROCEDURE EditUserDetails(
-    IN p_UserID INT,
-    IN p_Name VARCHAR(255),
-    IN p_MailID VARCHAR(255),
-    IN p_Role VARCHAR(50)
+CREATE PROCEDURE EditCustomerDetails(
+    IN p_CustomerID INT,
+    IN p_Name VARCHAR(100),
+    IN p_Email VARCHAR(100),
+    IN p_Phone VARCHAR(15),
+    IN p_Address TEXT
 )
 BEGIN
-    -- Update the user details based on UserID
-    UPDATE Users
-    SET 
-        Name = IFNULL(p_Name, Name),        -- Only update if new value is provided
-        MailID = IFNULL(p_MailID, MailID),  -- Only update if new value is provided
-        Role = IFNULL(p_Role, Role)         -- Only update if new value is provided
-    WHERE UserID = p_UserID;
+    DECLARE v_CustomerID INT; -- Variable to store the CustomerID
 
-    -- Check if any rows were updated
+    -- Store the input CustomerID into the variable
+    SET v_CustomerID = p_CustomerID;
+
+    -- Update the customer details in the Customers table
+    UPDATE Customers
+    SET 
+        Name = IFNULL(p_Name, Name),         -- Only update if new value is provided
+        Email = IFNULL(p_Email, Email),     -- Only update if new value is provided
+        Phone = IFNULL(p_Phone, Phone),     -- Only update if new value is provided
+        Address = IFNULL(p_Address, Address) -- Only update if new value is provided
+    WHERE CustomerID = v_CustomerID;
+
+    -- Check if any rows were updated in the Customers table
     IF ROW_COUNT() = 0 THEN
         SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'User not found.';
+        SET MESSAGE_TEXT = 'Customer not found.';
     ELSE
-        -- Print a success message if the user details are edited
-        SELECT 'Edited Successfully' AS Message;
+        -- Reflect changes to Name and Email in the Users table
+        UPDATE Users
+        SET 
+            Name = IFNULL(p_Name, Name),      -- Only update if new value is provided
+            MailID = IFNULL(p_Email, MailID)  -- Only update if new value is provided
+        WHERE UserID = v_CustomerID;
+
+        -- If rows in Users table are not updated, give a warning
+        IF ROW_COUNT() = 0 THEN
+            SIGNAL SQLSTATE '45001'
+            SET MESSAGE_TEXT = 'User not found for corresponding Customer.';
+        END IF;
+
+        -- Print a success message
+        SELECT 'Edited Successfully in both Customers and Users tables' AS Message;
     END IF;
+
 END;
 //
 
